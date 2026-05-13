@@ -1,0 +1,6 @@
+npm.cmd install
+cargo build --release --manifest-path aeroforge-service/Cargo.toml
+cargo build --release --manifest-path src-tauri/Cargo.toml --bin aeroforge-hotkey-helper
+cargo build --release --manifest-path src-tauri/Cargo.toml --bin aeroforge-update-bridge
+npm.cmd run tauri:build
+%comspec% /k "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\Tools\VsDevCmd.bat"

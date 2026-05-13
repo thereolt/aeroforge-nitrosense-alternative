@@ -285,14 +285,38 @@ pub fn run_periodic_worker(
     tick: fn(&ServicePaths) -> Result<(), Box<dyn std::error::Error + Send + Sync>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     while !stop_flag.load(std::sync::atomic::Ordering::SeqCst) {
-        tick(&paths)?;
-        let _ = event_tx.send(WorkerEvent {
-            worker: name,
-            state: WorkerState::Running,
-            message: None,
-            interval_seconds: interval.as_secs(),
-            timestamp_unix: unix_timestamp(),
-        });
+        match tick(&paths) {
+            Ok(_) => {
+                let _ = event_tx.send(WorkerEvent {
+                    worker: name,
+                    state: WorkerState::Running,
+                    message: None,
+                    interval_seconds: interval.as_secs(),
+                    timestamp_unix: unix_timestamp(),
+                });
+            }
+            Err(error) => {
+                let message = error.to_string();
+                let _ = write_log_line(
+                    &paths.service_log(),
+                    "WARN",
+                    &format!("Periodic worker {name} tick failed: {message}"),
+                );
+                let _ = write_log_line(
+                    &paths.component_log(name),
+                    "WARN",
+                    &format!("Periodic worker {name} tick failed: {message}"),
+                );
+                let _ = event_tx.send(WorkerEvent {
+                    worker: name,
+                    state: WorkerState::Running,
+                    message: Some(message),
+                    interval_seconds: interval.as_secs(),
+                    timestamp_unix: unix_timestamp(),
+                });
+            }
+        }
+
         sleep_until_next_tick(interval, &stop_flag);
     }
 

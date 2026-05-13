@@ -32,26 +32,45 @@ pub fn run(
     stop_flag: Arc<AtomicBool>,
     event_tx: WorkerEventSender,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let _ = event_tx.send(WorkerEvent {
-        worker: "ipc-worker",
-        state: WorkerState::Running,
-        message: Some(format!("Listening on {PIPE_PATH}.")),
-        interval_seconds: 0,
-        timestamp_unix: unix_timestamp(),
-    });
-
-    while !stop_flag.load(Ordering::SeqCst) {
-        let pipe = pipe::create_pipe_instance(&paths, PIPE_PATH)?;
-        pipe::connect_client(&pipe)?;
-        handle_client(pipe, &paths)?;
-
+    loop {
+        let start_time = unix_timestamp();
         let _ = event_tx.send(WorkerEvent {
             worker: "ipc-worker",
             state: WorkerState::Running,
-            message: Some("Handled named-pipe request.".into()),
+            message: Some(format!("Listening on {PIPE_PATH}.")),
             interval_seconds: 0,
-            timestamp_unix: unix_timestamp(),
+            timestamp_unix: start_time,
         });
+
+        while !stop_flag.load(Ordering::SeqCst) {
+            let pipe = pipe::create_pipe_instance(&paths, PIPE_PATH)?;
+            pipe::connect_client(&pipe)?;
+            handle_client(pipe, &paths)?;
+
+            let _ = event_tx.send(WorkerEvent {
+                worker: "ipc-worker",
+                state: WorkerState::Running,
+                message: Some("Handled named-pipe request.".into()),
+                interval_seconds: 0,
+                timestamp_unix: unix_timestamp(),
+            });
+
+            // Check if 3 hours have passed
+            if unix_timestamp() - start_time >= 3 * 3600 {
+                let _ = event_tx.send(WorkerEvent {
+                    worker: "ipc-worker",
+                    state: WorkerState::Running,
+                    message: Some("Refreshing IPC worker after 3 hours.".into()),
+                    interval_seconds: 0,
+                    timestamp_unix: unix_timestamp(),
+                });
+                break;
+            }
+        }
+
+        if stop_flag.load(Ordering::SeqCst) {
+            break;
+        }
     }
 
     Ok(())
