@@ -26,7 +26,7 @@ pub use models::{
 };
 
 const WORKER_NAME: &str = "control-worker";
-const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 static FAN_APPLY_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 pub fn registration() -> WorkerRegistration {
@@ -210,14 +210,34 @@ fn tick(paths: &ServicePaths) -> Result<(), Box<dyn std::error::Error + Send + S
         .lock()
         .map_err(|_| "Fan apply lock was poisoned.")?;
 
-    match fan::apply_custom_fan_curves(paths, ApplyCustomFanCurvesRequest { curves }) {
-        Ok(applied) => state::persist_fan_apply_success(paths, &applied)?,
-        Err(error) => {
-            let detail = format!("Periodic custom fan curve refresh failed: {error}");
-            let _ = write_log_line(&paths.component_log("control-fan"), "ERROR", &detail);
-            state::persist_fan_apply_error(paths, &detail)?;
+    // Retry up to 3 times with short delays to handle transient WMI failures
+    let mut last_error = None;
+    for attempt in 1..=3 {
+        match fan::apply_custom_fan_curves(paths, ApplyCustomFanCurvesRequest { curves: curves.clone() }) {
+            Ok(applied) => {
+                if attempt > 1 {
+                    let _ = write_log_line(&paths.component_log("control-fan"), "INFO",
+                        &format!("Custom fan curve refresh succeeded on attempt {}", attempt));
+                }
+                state::persist_fan_apply_success(paths, &applied)?;
+                return Ok(());
+            }
+            Err(error) => {
+                last_error = Some(error);
+                if attempt < 3 {
+                    let _ = write_log_line(&paths.component_log("control-fan"), "WARN",
+                        &format!("Custom fan curve refresh failed on attempt {}: {}", attempt, last_error.as_ref().unwrap()));
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+            }
         }
     }
+
+    // All retries failed
+    let error = last_error.unwrap();
+    let detail = format!("Periodic custom fan curve refresh failed after 3 attempts: {error}");
+    let _ = write_log_line(&paths.component_log("control-fan"), "ERROR", &detail);
+    state::persist_fan_apply_error(paths, &detail)?;
 
     Ok(())
 }

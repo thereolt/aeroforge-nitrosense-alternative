@@ -2669,7 +2669,7 @@ function App() {
     void detectShell()
 
     async function pollBackend() {
-      if (backendPollInFlightRef.current || controlApplyInFlightRef.current > 0) {
+      if (backendPollInFlightRef.current) {
         return
       }
 
@@ -4175,7 +4175,7 @@ function App() {
                         Reset custom
                       </button>
                       <span>
-                        Custom mode stores edits immediately and refreshes the curve-derived fan target every 5 seconds.
+                        Custom mode stores edits immediately and refreshes the curve-derived fan target every 2 seconds.
                       </span>
                     </div>
                   </>
