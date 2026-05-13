@@ -50,6 +50,16 @@ npm.cmd run tauri:dev
 
 ## Package the desktop app
 
+Build the service and helper binaries first:
+
+```powershell
+cargo build --release --manifest-path aeroforge-service/Cargo.toml
+cargo build --release --manifest-path src-tauri/Cargo.toml --bin aeroforge-hotkey-helper
+cargo build --release --manifest-path src-tauri/Cargo.toml --bin aeroforge-update-bridge
+```
+
+Then package:
+
 ```powershell
 npm.cmd run tauri:build
 ```

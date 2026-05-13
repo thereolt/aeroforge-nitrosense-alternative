@@ -216,18 +216,17 @@ fn gpu_activity_gate_allows_nvml(
                     );
                 }
                 guard.last_gate_error = Some(detail);
-                guard.active_until = None;
+                guard.active_until = Some(now + NVIDIA_GPU_ACTIVE_COOLDOWN);
                 let gate_detail =
-                    "GPU activity gate sample: allowsNvml=false reason=gate-error-fail-closed."
-                        .to_string();
+                    "GPU activity gate sample: allowsNvml=true reason=gate-error.".to_string();
                 log_gate_detail(paths, &mut guard, &gate_detail);
-                log_gate_transition(paths, &mut guard, false, &gate_detail);
+                log_gate_transition(paths, &mut guard, true, &gate_detail);
             }
         }
     }
 
     let guard = cache.lock().expect("gpu telemetry cache lock poisoned");
-    gate_cooldown_active(&guard, now)
+    gate_cooldown_active(&guard, now) || guard.last_gate_error.is_some()
 }
 
 fn gate_cooldown_active(cache: &GpuTelemetryCache, now: Instant) -> bool {

@@ -8,10 +8,7 @@ mod telemetry;
 use std::{
     collections::BTreeMap,
     sync::mpsc::{self, Receiver, RecvTimeoutError, Sender},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::{atomic::AtomicBool, Arc},
     thread::{self, JoinHandle},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -19,8 +16,6 @@ use std::{
 use serde::Serialize;
 
 use crate::paths::{write_log_line, ServicePaths};
-
-const WORKER_RESTART_DELAY: Duration = Duration::from_secs(2);
 
 pub struct ServiceHost {
     paths: ServicePaths,
@@ -166,73 +161,33 @@ fn spawn_worker(
     )?;
 
     Ok(thread::Builder::new().name(name.into()).spawn(move || {
-        let mut restart_count = 0u64;
+        let _ = event_tx.send(WorkerEvent {
+            worker: name,
+            state: WorkerState::Starting,
+            message: None,
+            interval_seconds: 0,
+            timestamp_unix: unix_timestamp(),
+        });
 
-        while !stop_flag.load(Ordering::SeqCst) {
-            let starting_message = if restart_count == 0 {
-                None
-            } else {
-                Some(format!("Restart attempt {restart_count}."))
-            };
+        if let Err(error) = (registration.runner)(paths.clone(), stop_flag, event_tx.clone()) {
+            let message = error.to_string();
+            let _ = write_log_line(
+                &paths.service_log(),
+                "ERROR",
+                &format!("{name} failed: {message}"),
+            );
+            let _ = write_log_line(
+                &paths.component_log(name),
+                "ERROR",
+                &format!("{name} failed: {message}"),
+            );
             let _ = event_tx.send(WorkerEvent {
                 worker: name,
-                state: WorkerState::Starting,
-                message: starting_message,
+                state: WorkerState::Failed,
+                message: Some(message),
                 interval_seconds: 0,
                 timestamp_unix: unix_timestamp(),
             });
-
-            match (registration.runner)(paths.clone(), stop_flag.clone(), event_tx.clone()) {
-                Ok(()) if stop_flag.load(Ordering::SeqCst) => break,
-                Ok(()) => {
-                    let message =
-                        format!("{name} exited before shutdown; supervisor will restart it.");
-                    let _ = write_log_line(&paths.service_log(), "WARN", &message);
-                    let _ = write_log_line(&paths.component_log(name), "WARN", &message);
-                    let _ = event_tx.send(WorkerEvent {
-                        worker: name,
-                        state: WorkerState::Failed,
-                        message: Some(message),
-                        interval_seconds: 0,
-                        timestamp_unix: unix_timestamp(),
-                    });
-                }
-                Err(error) => {
-                    let message = error.to_string();
-                    let _ = write_log_line(
-                        &paths.service_log(),
-                        "ERROR",
-                        &format!("{name} failed: {message}"),
-                    );
-                    let _ = write_log_line(
-                        &paths.component_log(name),
-                        "ERROR",
-                        &format!("{name} failed: {message}"),
-                    );
-                    let _ = event_tx.send(WorkerEvent {
-                        worker: name,
-                        state: WorkerState::Failed,
-                        message: Some(message),
-                        interval_seconds: 0,
-                        timestamp_unix: unix_timestamp(),
-                    });
-                }
-            }
-
-            if stop_flag.load(Ordering::SeqCst) {
-                break;
-            }
-
-            restart_count += 1;
-            let _ = write_log_line(
-                &paths.component_log(name),
-                "INFO",
-                &format!(
-                    "Restarting {name} in {} seconds after worker exit.",
-                    WORKER_RESTART_DELAY.as_secs()
-                ),
-            );
-            sleep_until_next_tick(WORKER_RESTART_DELAY, &stop_flag);
         }
 
         let _ = event_tx.send(WorkerEvent {
