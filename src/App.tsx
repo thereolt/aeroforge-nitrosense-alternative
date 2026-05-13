@@ -1437,7 +1437,6 @@ function App() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
   const [updateActionPending, setUpdateActionPending] = useState<UpdateAction | null>(null)
   const [updateActionMessage, setUpdateActionMessage] = useState<string | null>(null)
-  const autoUpdateCheckTriggeredRef = useRef(false)
   const updateNotificationKeyRef = useRef<string | null>(null)
   const [statusMessage, setStatusMessage] = useState(
     'Desktop backend starting. Loading persisted AeroForge state.',
@@ -2869,18 +2868,6 @@ function App() {
     }
   }, [])
 
-  useEffect(() => {
-    if (autoUpdateCheckTriggeredRef.current) {
-      return
-    }
-
-    if (!checkForUpdatesOnLaunch) {
-      return
-    }
-
-    autoUpdateCheckTriggeredRef.current = true
-    void runUpdateCheckRef.current?.(false)
-  }, [checkForUpdatesOnLaunch])
 
   function pulseControl(target: string) {
     setGlowTarget(target)
